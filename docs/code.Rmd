@@ -1,0 +1,539 @@
+---
+title: 'Statiistical Consulting - Final Project - Criterias to evaluate benchmarking methodologies in single-cell research'
+author: "![](https://courseseeker.edu.au/assets/images/institutions/3040.png){width=15%} | Linh Ngo"
+output:
+  html_document:
+    code_folding: hide
+    toc: yes
+    toc_float: yes
+    theme: united
+    smooth-scroll: yes
+  pdf_document:
+    toc: yes
+execute:
+  warning: no
+editor_options:
+  chunk_output_type: inline
+  markdown: 
+    wrap: 72
+warning: FALSE
+---
+
+# Executive Summary
+
+The clients, researchers in single-cell research, have conducted a survey to assess the evaluation criteria of different papers that focus on benchmarking methods in single-cell studies. The survey aims to gather information on how each paper addresses and meets specific evaluation criteria mentioned in the survey. The clients are seeking guidance on how to analyze and compare the survey results to gain insights into the effectiveness of various benchmarking methodologies in single-cell research.
+
+The primary research question I propose to address is identifying the criteria that significantly impact the citation count of benchmarking methodologies in single-cell research. This investigation aims to uncover valuable insights into the factors that contribute to the recognition and influence of these methodologies within the scientific community. By understanding the specific criteria that drive citation count, researchers can gain a deeper understanding of the key elements that shape the success and impact of benchmarking approaches in the field of single-cell research.
+
+This report aims to provide an overview of the criteria used to evaluate benchmarking methodologies in single-cell research, along with relevant statistical analysis. Firstly, the criteria will be presented, highlighting their importance in assessing the performance and impact of these methodologies. Subsequently, statistical models, such as linear regression and negative binomial regression, will be employed to investigate the relationship between these criteria and the citation count. The results of these models will offer valuable insights into the factors that contribute to the recognition and effectiveness of benchmarking methodologies in the field of single-cell research.
+
+
+# Analysis
+## Criteria grouping
+
+
+The evaluation process involved analyzing the papers based on a set of criteria defined, which includes `Data`, `Accuracy`, `Scalability`, `Downstream Analysis`, and `Communication`. Each criterion then consisted of specific subcriterias that further refined the evaluation process, which can be seen from the table below. Each criterion consisted of specific subcriterias that were extracted from the questions in the survey, which included responses of `Yes`, `No`,and  `Not Sure`, as well as some free-response answers. To calculate a score for each criterion, the subcriteria that received `Yes` responses were considered. By summing the scores of the relevant subcriteria, an overall score was obtained for each criterion. This aggregation process allowed for a comprehensive evaluation of the papers' quality and contribution, considering only the subcriterias that were derived from the questions with`Yes`, `No`, or `Not Sure`
+ responses from the survey participants.
+
+The table provided below presents a comprehensive overview of the criteria and their corresponding subcriteria.
+
+```{r}
+library(kableExtra)
+
+# Create a data.frame
+datatable <- data.frame(
+  Criteria = c("Data", "Accuracy", "Scalability", "Downstream", "Communication"),
+  Subcriteria = c("Diversity of experimental data, Diversity of synthetic datasets",
+                 "Selection criteria, Variability of score, Overall comparison",
+                 "Speed measured?, Memory measured",
+                 "Downstream analysis, Prior knowledge, Discovery?, Wet lab validation",
+                 "Recommendation, Applicability, Trade-offs, Future directions")
+)
+
+# Convert the dataframe to a kable table with kableExtra styling
+kable_table <- datatable %>%
+  kbl() %>%
+  kable_classic() %>%
+  kable_styling()
+
+# Print the kable table
+kable_table
+
+
+```
+
+
+
+## Descriptive statistics of data
+```{r include = FALSE}
+knitr::opts_chunk$set(warning=FALSE)
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(DT)
+library(rentrez)
+library(readr)
+library(tidyverse)
+library(sjPlot)
+library(lme4)
+library(lubridate)
+library(bench)
+library(patchwork)
+library(stats)     # Required for linear regression (lm) function
+library(stats4)    # Required for linear regression (lm) function
+library(dplyr)     # Required for data manipulation and transformation
+library(matrixStats)  # Required for matrix operations
+library(knitr)
+library(kableExtra)
+library(car)
+library(lmtest)
+library(MASS)
+
+```
+
+```{r include = FALSE}
+
+df_final<- read_csv("data.csv")
+
+df_final <- 
+  df_final %>%
+  mutate_at(vars("Diversity of experimental data","Diversity of synthetic datasets", "Number of experimental datasets", "Number of synthetic datasets" ), ~replace(., is.na(.), 0))
+
+df_final$Software <- as.integer(df_final$Website == "Yes") + as.integer(df_final$"Data availability" == "Yes") + as.integer(df_final$"Package availability" == "Yes")
+
+df_final$Communication <- as.integer(df_final$Recommendation == "Yes") + as.integer(df_final$Applicability == "Yes") + as.integer(df_final$"Trade-offs" == "Yes") + as.integer(df_final$"Future directions" == "Yes")
+
+df_final$Downstream <- as.integer(df_final$"Downstream analysis" == "Yes") + as.integer(df_final$"Prior knowledge" == "Yes") + as.integer(df_final$"Discovery?" == "Yes") + as.integer(df_final$"Wet lab validation" == "Yes")
+
+df_final$Data <- as.integer(df_final$"Diversity of experimental data" == "Yes") + as.integer(df_final$ "Diversity of synthetic datasets" == "Yes")
+
+df_final$Scalability <- as.integer(df_final$"Speed measured?" == "Yes") + as.integer(df_final$"Memory measured" == "Yes")
+
+df_final$Accuracy <- as.integer(df_final$"Selection criteria" == "Yes") + as.integer(df_final$"Variability of score" == "Yes") +  as.integer(df_final$"Overall comparison" == "Yes") 
+
+df_final <- df_final[!is.na(df_final$CitationCount), ]
+colnames(df_final)[colnames(df_final) == "Paper category"] <- "PaperCategory"
+
+df_final$Datasets <- df_final$`Number of experimental datasets` + df_final$`Number of synthetic datasets`
+
+#df_final$publication_date <- ymd(df_final$PublicationDate)
+
+```
+
+```{r include = FALSE}
+
+df_final <- df_final[, c("PMID", "PaperCategory", "Methods compared", "Software", "Communication", "Downstream", "Data", "Scalability", "Accuracy","Number of experimental datasets", "Number of synthetic datasets", "impact_factor","CitationCount", "Datasets", "Tuning")]
+df_final<- df_final[!duplicated(df_final$PMID), ]
+df_final$CitationCount <- as.numeric(df_final$CitationCount)
+df_final$PaperCategory <- factor(df_final$PaperCategory, levels = c("New method development paper", "Pure benchmarking paper"))
+columns <- c("Software", "Communication", "Downstream", "Data", "Scalability", "Accuracy")
+df_final$Criteria <- rowSums(df_final[columns], na.rm = TRUE)
+colnames(df_final)
+```
+
+
+
+```{r, include = FALSE, eval = FALSE}
+# Subset the data for papers focused on new method development
+new_method_papers <- df_final[df_final$PaperCategory == "New method development paper", "CitationCount"]
+
+# Subset the data for papers focused on pure benchmarking
+benchmarking_papers <- df_final[df_final$PaperCategory == "Pure benchmarking paper", "CitationCount"]
+
+hist( df_final[df_final$PaperCategory == "New method development paper", "CitationCount"])
+
+# Perform the t-test
+t_test_result <- t.test(new_method_papers, benchmarking_papers)
+
+# Print the p-value
+p_value <- t_test_result$p.value
+p_value
+
+```
+
+
+```{r include = FALSE}
+
+library(ggplot2)
+
+# Subset the data for each paper category
+new_method_data <- subset(df_final, PaperCategory == "New method development paper")
+benchmarking_data <- subset(df_final, PaperCategory == "Pure benchmarking paper")
+
+# Create a histogram for citation count in the New Method Development category
+ggplot(new_method_data, aes(x = CitationCount)) +
+  geom_histogram(binwidth = 10, fill = "blue", alpha = 0.7) +
+  labs(title = "Histogram - Citation Count (New Method Development Papers)", x = "Citation Count", y = "Frequency")
+
+# Create a histogram for citation count in the Pure Benchmarking category
+ggplot(benchmarking_data, aes(x = CitationCount)) +
+  geom_histogram(binwidth = 10, fill = "green", alpha = 0.7) +
+  labs(title = "Histogram - Citation Count (Pure Benchmarking Papers)", x = "Citation Count", y = "Frequency")
+
+
+```
+
+
+This table below provides a comprehensive overview of several variables in the dataset, including `Accuracy`, `CitationCount`, `Communication`, `Data`, `Downstream`, `Methods compared`, `Number of experimental datasets`, `Scalability`, and `Software`. It presents key statistical measures such as the mean, median, minimum, maximum, and standard deviation for each variable. These summary statistics provide insights into the central tendency, variability, and range of values for each variable, enabling a better understanding of the distribution and characteristics of dataset.
+
+```{r}
+library(dplyr)
+library(kableExtra)
+
+# Pivot the data
+df_long <- pivot_longer(df_final, cols = c("Software", "Communication", "Downstream", "Data", "Scalability", "Accuracy", "Methods compared", "Number of experimental datasets", "CitationCount"), names_to = "Variable", values_to = "Value")
+
+# Calculate summary statistics
+summary_table <- df_long %>%
+  group_by(Variable) %>%
+  summarize(
+    Mean = mean(Value),
+    Median = median(Value),
+    Min = min(Value),
+    Max = max(Value),
+    SD = sd(Value)
+  )
+
+# Format the table
+summary_table <- kable(summary_table, format = "html", align = "c") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+# Print the table
+summary_table
+
+```
+
+
+The boxplots displayed below depict the distribution of scores for criteria based on paper category, distinguishing between `New Development Paper` and `Pure Benchmarking Paper`. Each boxplot represents a specific criterion, and the vertical axis represents the score values. 
+
+```{r}
+# Create the combined plot with larger size
+
+df_long <- pivot_longer(df_final, cols = c("Software", "Communication", "Downstream", "Data", "Scalability", "Accuracy"), names_to = "Variable", values_to = "Value")
+
+combined_plot <- ggplot(df_long, aes(x = Value, y = Variable)) +
+  geom_boxplot(color = "black", width = 0.7) +
+  geom_point(aes(color = factor(PaperCategory)), position = position_jitter(width = 0.2, height = 0.2), alpha = 0.6, size = 2) +
+  xlab("Value") +
+  ylab("Variable") +
+  ggtitle("Criteria ") +
+  theme_minimal() +
+
+  theme(
+    legend.position = "top",
+    legend.justification = "right",
+    legend.box.just = "right",
+    legend.margin = margin(t = 0, r = 10, b = 0, l = 0),
+    legend.background = element_rect(fill = "transparent", color = NA)
+  ) +
+  labs(color = "Paper Category")  # Rename the legend title
+
+# Display the combined plot
+combined_plot
+
+```
+
+
+
+
+## Relative Impact of Criterias on Citation Count
+
+### Stepwise negative binomial regression model
+
+#### Model
+
+The rationale for using a stepwise negative binomial regression model can be attributed to the specific characteristics observed in the data. The response variable `CitationCount` is a count variable representing the number of citations received by papers. This variable has variance exceeds the mean (Variance:422.0482 > Mean: 50 ), hence exhibiting overdispersion. In this case, the negative binomial regression model is appropriate as it can account for the extra variability. Moreover, the stepwise selection is simultaneously applied as it is useful for variable selection and model simplification. The backward stepwise model starts with a full model that includes all potential predictors and iteratively removes non-significant predictors one by one, based on their p-values. This approach helps to systematically simplify the model by eliminating variables that do not significantly contribute to the prediction of the citation count.
+
+Furthermore, in the case of citation count, it is plausible that the presence of an intercept in the model may not be meaningful or necessary. The intercept term represents the expected citation count when all the independent variables (`Software`, `Communication`, `Downstream`, `Data`, `Scalability`, `Accuracy`, `Methods compared`, and `Datasets`) are zero. In the context of citation count, it is unlikely that a paper with zero values for all the predictors would have any citations. By excluding the intercept, the regression model is specifically focused on examining the relationship between the independent variables and citation count, without assuming a non-zero baseline level of citations. 
+
+
+```{r}
+# Remove missing values from the dataset
+complete_data <- na.omit(df_final)
+
+# Fit a full linear regression model with complete data
+full_model <- glm.nb(CitationCount ~   `Methods compared` + Software + Communication + Downstream + Data +
+                  Scalability + Accuracy + `Number of experimental datasets` + `Number of synthetic datasets` +
+                  impact_factor + Datasets + Tuning + Criteria - 1, data = complete_data, link = log)
+
+# Perform stepwise regression on the full model
+step_model <- step(full_model, direction = "backward")
+tab_model(step_model)
+
+```
+
+
+
+The table of the stepwise negative binomial regression model presents the estimated coefficients, confidence intervals, and p-values for the predictors. These values can be interpreted as follows:
+
++ Estimated coefficients: The estimated coefficients represent the average change in the response variable `CitationCount` associated with a one-unit increase in the corresponding predictor. For example, a coefficient of 3.06 for the `Software` predictor suggests that, on average, a one-unit increase in the "Software" variable is associated with a 3.06 increase in the citation count, holding all other predictors constant.
+
++ Confidence intervals: The confidence intervals provide a range of plausible values for the true effect size of the predictor. It indicates the precision of the estimated coefficient. For instance, a confidence interval of -1.62 to 7.73 for the "Software" predictor suggests that we can be 95% confident that the true effect size lies within this range.
+
++ P-values: The p-values indicate the statistical significance of each predictor. A p-value less than the chosen significance level (usually 0.05) suggests that the predictor is statistically significant. In the model, predictors such as `Downstream,` `Methods compared,` `Tuning [Default setting],` and `Tuning [Parameter tuning]` have p-values less than 0.05, indicating a significant association with the citation count. On the other hand, predictors with p-values greater than 0.05, such as "Software," "Communication," and "Data," do not show strong evidence of a significant relationship with the outcome.
+
++ The R2 Nagelkerke value of 1.000 suggests that the stepwise model explains all the observed variation in the citation count, indicating a strong and consistent relationship between the predictors and the outcome.
+
+#### Assumptions of negative binomial regression model
+
+  1. Independence: The observations in the datasets are assumed to be independent of each other
+
+
+```{r}
+# Check for independence using Durbin-Watson test
+dwtest(step_model)
+
+```
+
+The Durbin-Watson test result of 1.9606 with a p-value of 0.3975 suggests no significant positive autocorrelation in the residuals, indicating that the assumption of independence is likely met. Moreover, the dataframe is only filtered to only record of each paper only once, hence this assumption is satisfied.
+
+  2. Linearity:  The relationship between the response variable and the predictor variables is assumed to be l   inear.
+
+In this predicted vs. residuals plot, the points are randomly scattered around zero without any discernible pattern, indicating that the linearity assumption holds
+```{r}
+# Assuming you have the fitted model stored in the variable 'model'
+
+# Obtain the predicted values from the model
+predicted <- predict(step_model, type = "response")
+
+# Plot observed values against predicted values
+plot(predicted, residuals(step_model, type = "response"), xlab = "Predicted Values", ylab = "Residuals")
+
+
+```
+
+  3. Overdispersion: The observed variance of the response variable is greater than its mean 
+
+```{r}
+# Check for overdispersion using residual deviance and degrees of freedom
+summary(step_model)$deviance / summary(step_model)$df.residual
+
+```
+
+The overdispersion score is approximately 1.077729, which suggests that there is a slight degree of overdispersion in the data. This means that the observed data exhibit slightly more variability than what would be expected under the assumed distribution in the model. Hence, the negative bionomial regression model should be applied. 
+
+
+
+### Linear regression model
+
+Another model explored is linear regression model. The code fits a linear regression model with CitationCount as the dependent variable and several independent variables, including Software, Communication, Downstream, Data, Scalability, Accuracy, Methods compared, Tuning, and impact_factor, using data from the df_final dataset, excluding the intercept term.
+
+```{r}
+model <- lm(CitationCount   ~   Software + Communication + Downstream +Data + Scalability + Accuracy + `Methods compared`+ Tuning + impact_factor  -1  , data = df_final)
+
+# Get the summary of the regression model
+tab_model( model)
+```
+
+
+
+\newline
+
+The table of the linear regression model presents the estimated coefficients, confidence intervals, and p-values for the predictors. These values can be interpreted as follows:
+
+
+* Estimated coefficients: The estimated coefficients represent the average change in the response variable `CitationCount` associated with a one-unit increase in the corresponding predictor. For example, a coefficient of 3.06 for the "Software" predictor suggests that, on average, one more subcriteria scored in the "Software" variable is associated with a 3.06 increase in the citation count, holding all other predictors constant.
+
+* Confidence intervals: The confidence intervals provide a range of plausible values for the true effect size of the predictor. It indicates the precision of the estimated coefficient. For instance, a confidence interval of -1.62 to 7.73 for the `Software` predictor suggests that we can be 95% confident that the true effect size lies within this range.
+
+* P-values: The p-values indicate the statistical significance of each predictor. A p-value less than the chosen significance level (usually 0.05) suggests that the predictor is statistically significant. In the model, predictors such as `Downstream`, `Methods compared`, `Tuning [Default setting]`, and `Tuning [Parameter tuning]` have p-values less than 0.05, indicating a significant association with the citation count. On the other hand, predictors with p-values greater than 0.05, such as `Software`, `Communication`, and `Data`, do not show strong evidence of a significant relationship with the outcome.
+
+* The R-squared value for this model is 0.895, indicating that approximately 89.5% of the variability in the citation count can be explained by the predictors included in the model.
+
+#### Assumptions of negative binomial regression model
+
+1. Linearity: The relationship between the response variable and 
+  the predictor variables is assumed to be linear.
+```{r}
+avPlots(model)
+
+```
+
+2. Independence: The observations in the datasets are 
+  assumed to be independent of each other
+
+  Since the dataframe is filtered out to only contain information about unique papers, this assumption is     met.
+
+3. Normality:The residuals of the model are normally distributed
+
+In the Q-Q plot below, most of data points follows the line. Hence, this assumption is satisfied.
+
+
+4. Homoscedasticity: The variance of the residuals is constant across all levels of the predictor variables.
+
+A look at the residuals vs fitted plot shows a random scatter of points around a horizontal line with a roughly constant spread, indicating that the linearity assumption and constant variance assumption (homoscedasticity) are satisfied.
+
+
+```{r }
+# Diagnostic plot for model
+par(mfrow = c(2, 2))  # Set the plot layout to 2x2
+
+# Residuals vs Fitted plot
+plot(model$fitted.values, model$residuals,
+     xlab = "Fitted values", ylab = "Residuals",
+     main = "Residuals vs Fitted")
+
+# Normal Q-Q plot
+qqnorm(model$residuals, main = "Normal Q-Q")
+
+# Scale-Location plot
+sqrt_abs_residuals <- sqrt(abs(model$residuals))
+plot(model$fitted.values, sqrt_abs_residuals,
+     xlab = "Fitted values", ylab = "Square root of absolute residuals",
+     main = "Scale-Location")
+
+# Residuals vs Leverage plot
+plot(model, which = 5)
+
+
+```
+
+
+## Comparision of models
+
+Overall, significant predictors identified in both the stepwise negative binomial regression model and the linear regression model align. However, it is worth noting that the coefficient values may differ between the two models. This discrepancy arises due to the distinct assumptions and modeling techniques employed by each regression model. The negative binomial regression model, tailored for count data and accommodating overdispersion, captures the nuances of the data more accurately. On the other hand, the linear regression model, assuming a continuous outcome variable, may not fully capture the intricacies of count data. Consequently, while the significance of predictors remains consistent, the specific coefficient values vary due to the dissimilarities in modeling approaches.
+
+# Summary
+## Limitations
+
+One limitation of the model is its disregard for the publication date of papers when predicting the citation count. It is plausible that papers published for a longer duration accumulate more citations. However, acquiring publication dates using `rentrez` library result in a significant number of missing values in the publication date column. Nonetheless, if this information is available, calculating the average citation count per year becomes feasible. 
+As the response variable, considering the average citation count per year provides a meaningful metric that captures the long-term impact and influence of papers, taking into account their publication dates. By incorporating this information into the model, we can gain insights into the temporal trends and patterns of citation accumulation, allowing for a more comprehensive analysis of the factors driving citation counts in the field.
+
+Moreover, one limitation of the scoring system is that it assigns equal weights to each subcriteria within a criterion. This may not always accurately reflect the relative importance or impact of each subcriteria. Some subcriteria may have a greater influence on the overall evaluation, but this is not captured in the equal weighting approach. Incorporating a weighting scheme based on the perceived importance or relevance of each subcriteria could provide a more nuanced and accurate assessment of the papers' quality and contribution. 
+
+## Result summary
+
+Overall, the main aim of this report is to find the relative impact of citerias on citation count. To answer this question, Two models have been explored: negative bionomial regression model and linear regression model. It is suggested that the negative bionomial regression model is more robust than the linear regression model as it has a perfect R-squared value and is a more convenient choice for count data with overdispersion. The analysis revealed that certain criteria, such as `Methods compared` and `Number of experimental datasets` have a significant impact on citation count, while others, such as `Software` and `Scalability`, have a more moderate influence. However, it is important to acknowledge the limitations of the models, such as the exclusion of publication date and the equal weighting of subcriteria within a criterion.
+
+
+# Appendix
+
+```{r, eval = FALSE}
+library(data.table)
+library(DT)
+library(rentrez)
+library(readr)
+library(tidyverse)
+library(sjPlot)
+library(lme4)
+library(lubridate)
+library(bench)
+library(patchwork)
+library(stats)     # Required for linear regression (lm) function
+library(stats4)    # Required for linear regression (lm) function
+library(dplyr)     # Required for data manipulation and transformation
+library(matrixStats)  # Required for matrix operations
+library(knitr)
+library(kableExtra)
+library(car)
+library(lmtest)
+library(MASS)
+```
+
+## Data Cleaning
+
+In this project, the benchmark survey response dataset was preprocessed
+to ensure data quality and consistency.
+
+1.  Eliminate columns with a high percentage of missing values were
+    eliminated
+
+2.  Drop unnecessary columns containing irrelevant information for
+    interest
+    ```{r, eval = FALSE}
+df <- read_csv("benchmark_survey_response_anonymous.csv")
+# Narow down dataframe by eliminating columns where over half of records are 'NA' values
+na_counts <- colSums(is.na(df))
+num_rows <- nrow(df)
+columns_to_drop <- names(na_counts[na_counts > 0.5*num_rows])
+df <- df[, !(names(df) %in% columns_to_drop)]
+df <- df[, -c(1,3)]
+```
+
+
+3.  Fetch citation count and publication date for each paper
+
+```{r, eval = FALSE}
+# Function to fetch citation count
+get_citation_count <- function(pmid) {
+  record <- tryCatch(
+    entrez_summary(db = "pubmed", id = pmid),
+    error = function(e) NA
+  )
+  if (!is.na(record) && !is.null(record$pmcrefcount)) {
+    return(record$pmcrefcount)
+  } else {
+    return(NA)
+  }
+}
+
+# Function to fetch publication date
+get_publication_date <- function(pmid) {
+  record <- tryCatch(
+    entrez_summary(db = "pubmed", id = pmid),
+    error = function(e) NA
+  )
+  if (!is.na(record) && !is.null(record$pubdate)) {
+    return(record$pubdate)
+  } else {
+    return(NA)
+  }
+}
+
+# Add citation count column
+df$CitationCount <- sapply(df$PMID, get_citation_count)
+
+# Add publication date column
+df$PublicationDate <- sapply(df$PMID, get_publication_date)
+
+```
+
+4.  Save cleaned data into CSV file for further analysis
+
+
+```{r, eval = FALSE}
+# Write the DataFrame to CSV
+write.csv(df, file = "data.csv", row.names = TRUE)
+```
+
+5. Grouping columns within the same criteria together
+```{r, eval = FALSE}
+
+df_final<- read_csv("data.csv")
+
+df_final <- 
+  df_final %>%
+  mutate_at(vars("Diversity of experimental data","Diversity of synthetic datasets", "Number of experimental datasets", "Number of synthetic datasets" ), ~replace(., is.na(.), 0))
+
+df_final$Software <- as.integer(df_final$Website == "Yes") + as.integer(df_final$"Data availability" == "Yes") + as.integer(df_final$"Package availability" == "Yes")
+
+df_final$Communication <- as.integer(df_final$Recommendation == "Yes") + as.integer(df_final$Applicability == "Yes") + as.integer(df_final$"Trade-offs" == "Yes") + as.integer(df_final$"Future directions" == "Yes")
+
+df_final$Downstream <- as.integer(df_final$"Downstream analysis" == "Yes") + as.integer(df_final$"Prior knowledge" == "Yes") + as.integer(df_final$"Discovery?" == "Yes") + as.integer(df_final$"Wet lab validation" == "Yes")
+
+df_final$Data <- as.integer(df_final$"Diversity of experimental data" == "Yes") + as.integer(df_final$ "Diversity of synthetic datasets" == "Yes")
+
+df_final$Scalability <- as.integer(df_final$"Speed measured?" == "Yes") + as.integer(df_final$"Memory measured" == "Yes")
+
+df_final$Accuracy <- as.integer(df_final$"Selection criteria" == "Yes") + as.integer(df_final$"Variability of score" == "Yes") +  as.integer(df_final$"Overall comparison" == "Yes") 
+
+df_final <- df_final[!is.na(df_final$CitationCount), ]
+colnames(df_final)[colnames(df_final) == "Paper category"] <- "PaperCategory"
+
+df_final$Datasets <- df_final$`Number of experimental datasets` + df_final$`Number of synthetic datasets`
+
+df_final <- df_final[, c("PMID", "PaperCategory", "Methods compared", "Software", "Communication", "Downstream", "Data", "Scalability", "Accuracy","Number of experimental datasets", "Number of synthetic datasets", "impact_factor","CitationCount", "Datasets")]
+ 
+#df_final$publication_date <- ymd(df_final$PublicationDate)
+
+```
+
+
+
+# Reflection 
+
+
+One of the  lessons I learned from this project is the importance of grouping or transforming large datasets in a meaningful way to extract valuable insights. By organizing the data into relevant categories or applying suitable transformations, we can uncover patterns and make data more manageable for analysis. This process not only helps in gaining a deeper understanding of the data but also facilitates the extraction of actionable information from complex datasets.
+
+The most striking observation I made from the consulting projects this semester is the value of asking thorough and comprehensive questions to gather as much information as possible. I realized that asking detailed and targeted questions can help a consultant to gain a deeper understanding of the clients' needs, challenges, and expectations. This enabled to provide more tailored and effective solutions to meet their specific requirements. Additionally, asking probing questions helped uncover hidden insights and potential issues that may have been overlooked initially. It highlighted the importance of active listening and curiosity in consulting engagements, as well as the role of comprehensive questioning in uncovering valuable information and delivering high-quality outcomes for clients.
+
+
